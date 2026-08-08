@@ -36,3 +36,14 @@ class Transaction(models.Model):
     reverses = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True)
     metadata = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+class Entry(models.Model):
+    transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, related_name="entries")
+    account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="entries")
+    amount = models.BigIntegerField()
+    currency = models.CharField(max_length=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        constraints = [models.CheckConstraint(check=~models.Q(amount=0), name="entry_amount_nonzero")]
+        indexes = [models.Index(fields=["account"])]
