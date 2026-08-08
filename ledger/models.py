@@ -28,3 +28,11 @@ class Account(models.Model):
     user_id = models.IntegerField(null=True, blank=True)
     currency = models.CharField(max_length=3)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+
+class Transaction(models.Model):
+    idempotency_key = models.CharField(max_length=200, null=True, blank=True)
+    kind = models.CharField(max_length=200, choices=TransactionKind.choices)
+    reverses = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True)
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
