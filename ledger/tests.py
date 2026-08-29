@@ -76,3 +76,29 @@ def test_entries_are_immutable():
     from django.db.utils import InternalError, ProgrammingError
     with pytest.raises((InternalError, ProgrammingError)):
         Entry.objects.filter(transaction=txn).update(amount=0)
+        
+        
+@pytest.mark.django_db
+def test_account_balance():
+    # arrange: two accounts, move 100 between them
+    a = Account.objects.create(name="A", type="asset", currency="INR")
+    b = Account.objects.create(name="B", type="asset", currency="INR")
+    create_transaction(kind="wallet_topup", entries=[
+        {"account_id": a.id, "amount": 100},
+        {"account_id": b.id, "amount": -100},
+    ])
+    # act
+    client = APIClient()
+    response = client.get(f"/ledger/accounts/{a.id}/balance/")
+    # assert
+    assert response.status_code == 200
+    assert response.data["balance"] == 100
+    
+    
+@pytest.mark.django_db
+def test_empty_account_balance():
+    acc = Account.objects.create(name="Empty", type="asset", currency="INR")
+    client = APIClient()
+    response = client.get(f"/ledger/accounts/{acc.id}/balance/")
+    assert response.status_code == 200
+    assert response.data["balance"] == 0
