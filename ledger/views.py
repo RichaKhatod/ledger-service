@@ -29,3 +29,9 @@ class TransactionCreateView(APIView):
         except (ValueError, Account.DoesNotExist) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"transaction_id": transaction.id, "kind": transaction.kind}, status=status.HTTP_201_CREATED)
+    
+
+class AccountBalanceView(APIView):
+    def get(self, request, account_id):
+        balance = get_account_balance(account_id)
+        return Response({"account_id": account_id, "balance":balance}, status=status.HTTP_200_OK)

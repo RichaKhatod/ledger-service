@@ -1,8 +1,11 @@
 from django.db import transaction as db_transaction
 from .models import Transaction, Entry, Account
+from django.db.models import Sum
+
 
 def health_point_check_util(request):
     return "Status OK"
+
 
 def create_transaction(kind, entries, idempotency_key=None, metadata=None):
     total = sum(entry["amount"] for entry in entries)
@@ -32,3 +35,8 @@ def wallet_topup(user_id, amount):
         {"account_id": wallet.id, "amount": -amount},
     ]
     return create_transaction(kind="wallet_topup", entries=entries)
+
+
+def get_account_balance(account_id):
+    account_balance = Entry.objects.filter(account_id=account_id).aggregate(total=Sum("amount"))
+    return account_balance["total"] or 0
