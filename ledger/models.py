@@ -47,3 +47,11 @@ class Entry(models.Model):
     class Meta:
         constraints = [models.CheckConstraint(check=~models.Q(amount=0), name="entry_amount_nonzero")]
         indexes = [models.Index(fields=["account"])]
+        
+        
+class IdempotencyKey(models.Model):
+    key = models.CharField(max_length=255, unique=True)
+    request_hash = models.CharField(max_length=64)
+    response_body = models.JSONField()
+    transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
