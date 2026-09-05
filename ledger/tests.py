@@ -1,6 +1,6 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
-from ledger.models import Account, Entry
+from ledger.models import Account, Entry, IdempotencyKey, Transaction
 import pytest
 from ledger.utils import create_transaction
 
@@ -40,6 +40,7 @@ def test_wallet_topup_creates_balanced_transaction():
         "/ledger/transactions/",
         data={"user_id": 42, "amount": 100},
         format="json",
+        headers={"Idempotency-Key": "test-key-1"}
     )
 
     # assert
@@ -102,3 +103,47 @@ def test_empty_account_balance():
     response = client.get(f"/ledger/accounts/{acc.id}/balance/")
     assert response.status_code == 200
     assert response.data["balance"] == 0
+    
+    
+@pytest.mark.django_db
+def test_first_request_create():
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet",
+                           user_id=42, currency="INR")
+    client = APIClient()
+    response = client.post("/ledger/transactions/", data={"user_id": 42, "amount": 100},format="json",
+            headers={"Idempotency-Key": "abc123"})
+    assert response.status_code == 201
+    assert Transaction.objects.count() == 1
+    
+    
+@pytest.mark.django_db
+def test_retry_request():
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet",
+                           user_id=42, currency="INR")
+    client = APIClient()
+    response1 = client.post("/ledger/transactions/", data={"user_id": 42, "amount": 100},format="json",
+            headers={"Idempotency-Key": "abc123"})
+    assert response1.status_code == 201
+    response2 = client.post("/ledger/transactions/",data={"user_id": 42, "amount": 100},format="json",
+        headers={"Idempotency-Key": "abc123"},)
+
+    assert response2.status_code == 200
+    assert Transaction.objects.count() == 1
+    
+
+@pytest.mark.django_db
+def test_conflict_request():
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet",
+                           user_id=42, currency="INR")
+    client = APIClient()
+    response1 = client.post("/ledger/transactions/", data={"user_id": 42, "amount": 100},format="json",
+                headers={"Idempotency-Key": "abc123"})
+    assert response1.status_code == 201
+    
+    response2 = client.post("/ledger/transactions/", data={"user_id": 42, "amount": 200},format="json",
+            headers={"Idempotency-Key": "abc123"})
+    assert response2.status_code == 409
+    assert Transaction.objects.count() == 1

@@ -1,6 +1,8 @@
 from django.db import transaction as db_transaction
-from .models import Transaction, Entry, Account
+from .models import Transaction, Entry, Account, IdempotencyKey
 from django.db.models import Sum
+import hashlib
+import json
 
 
 def health_point_check_util(request):
@@ -40,3 +42,33 @@ def wallet_topup(user_id, amount):
 def get_account_balance(account_id):
     account_balance = Entry.objects.filter(account_id=account_id).aggregate(total=Sum("amount"))
     return account_balance["total"] or 0
+
+
+def hash_payload(payload):
+    # canonical JSON (sorted keys) so the same data always hashes the same
+    canonical = json.dumps(payload, sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+class IdempotencyConflict(Exception):
+    pass
+
+
+def process_idempotent_request(key, payload, handler):
+    request_hash = hash_payload(payload)
+    
+    existing_key = IdempotencyKey.objects.filter(key=key).first()
+    
+    if existing_key:
+        if existing_key.request_hash == request_hash:
+            return existing_key.response_body, False
+        else:
+            raise IdempotencyConflict("key reused with a different payload")
+        
+    result = handler()
+    IdempotencyKey.objects.create(
+        key=key,
+        request_hash=request_hash,
+        response_body=result
+    )
+    return result, True
