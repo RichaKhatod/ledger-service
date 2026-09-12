@@ -22,4 +22,5 @@ urlpatterns = [
     path('ledger/', include('ledger.urls')),
     path('agents/', include('agents.urls')),
     path('budgets/', include('budgets.urls')),
+    path('policy/', include('policy.urls')),
 ]

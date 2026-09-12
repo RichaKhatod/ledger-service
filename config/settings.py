@@ -44,7 +44,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "ledger",
     "agents",
-    "budgets"
+    "budgets",
+    "policy"
 ]
 
 MIDDLEWARE = [
