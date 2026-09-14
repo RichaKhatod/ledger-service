@@ -72,3 +72,18 @@ def process_idempotent_request(key, payload, handler):
         response_body=result
     )
     return result, True
+
+
+def wallet_payment(user_id, amount):
+    with db_transaction.atomic():
+        wallet = Account.objects.select_for_update().get(user_id=user_id, purpose="wallet")
+        merchant_payable = Account.objects.get(name="Merchant Payable")
+        balance = get_account_balance(wallet.id)
+        if balance+amount > 0:
+            raise ValueError("Insufficient balance")
+        entries = [
+            {"account_id": wallet.id,          "amount":  amount},   # wallet spends (debit)
+            {"account_id": merchant_payable.id, "amount": -amount},  # merchant owed (credit)
+        ]
+        
+        return create_transaction(kind="wallet payment", entries=entries)
