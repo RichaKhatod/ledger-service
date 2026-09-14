@@ -2,7 +2,9 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 from ledger.models import Account, Entry, IdempotencyKey, Transaction
 import pytest
-from ledger.utils import create_transaction
+from ledger.utils import *
+import threading
+from django.db import connection
 
 @pytest.mark.django_db
 def test_create_account():
@@ -147,3 +149,34 @@ def test_conflict_request():
             headers={"Idempotency-Key": "abc123"})
     assert response2.status_code == 409
     assert Transaction.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_no_double_spend_under_concurrency():
+    # arrange — wallet with exactly 100 (stored as -100 in our convention)
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name="Merchant Payable", type="liability", currency="INR")
+    wallet = Account.objects.create(name=None, type="liability", purpose="wallet",
+                                    user_id=42, currency="INR")
+    wallet_topup(user_id=42, amount=100)   # wallet now holds -100 (₹100 available)
+
+    results = []
+    def attempt_payment():
+        try:
+            wallet_payment(user_id=42, amount=100)
+            results.append("success")
+        except ValueError:
+            results.append("insufficient")
+        finally:
+            connection.close()   # each thread needs its own DB connection; close it after
+
+    # act — fire N threads simultaneously
+    threads = [threading.Thread(target=attempt_payment) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # assert — exactly ONE succeeded, the rest failed
+    assert results.count("success") == 1
+    assert results.count("insufficient") == 4
