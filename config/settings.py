@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     "ledger",
     "agents",
     "budgets",
-    "policy"
+    "policy",
+    "audit",
 ]
 
 MIDDLEWARE = [
