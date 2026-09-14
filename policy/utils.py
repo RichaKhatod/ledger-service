@@ -4,6 +4,7 @@ from budgets.models import BudgetEnvelope
 from ledger.utils import create_transaction
 from .engine import *
 from ledger.models import Account
+from audit.logger import *
 
 def process_spend_request_util(agent_id, amount, vendor, purpose="", metadata=None):
 	spend_request = SpendRequest.objects.create(
@@ -43,6 +44,7 @@ def process_spend_request_util(agent_id, amount, vendor, purpose="", metadata=No
 				pass  # ledger accounts not seeded yet — still approve
 			spend_request.status = "approved"
 			spend_request.save(update_fields=["status", "transaction"])
+			log_event(event_type="spend_approved", agent=spend_request.agent, spend_request=spend_request, payload={"amount": amount, "vendor": vendor})
 			return ("Approved", {"spend_request_id": spend_request.id}, 201)
 
 
@@ -50,10 +52,12 @@ def process_spend_request_util(agent_id, amount, vendor, purpose="", metadata=No
 			spend_request.status = "rejected"
 			spend_request.policy_decision_reason = result.reason
 			spend_request.save(update_fields=["status", "policy_decision_reason"])
+			log_event(event_type="spend_rejected", agent=spend_request.agent, spend_request=spend_request, payload={"reason": result.reason})
 			return ("Request rejected", {"reason":result.reason}, 403)
 
 		elif result.decision==Decision.ESCALATE:
 			spend_request.status = "escalated"
 			spend_request.policy_decision_reason = result.reason
 			spend_request.save(update_fields=["status", "policy_decision_reason"])
+			log_event(event_type="spend_escalated", agent=spend_request.agent, spend_request=spend_request, payload={"amount": amount, "reason": result.reason})
 			return ("Request escalated", {"spend_request_id": spend_request.id}, 202)
