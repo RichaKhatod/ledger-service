@@ -55,3 +55,14 @@ class IdempotencyKey(models.Model):
     response_body = models.JSONField()
     transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    
+class LedgerAuditEventType(models.TextChoices):
+    TRANSACTION_CREATED = "transaction_created", "Transaction created"
+    TRANSACTION_REVERSED = "transaction_reversed", "Transaction reversed"
+
+class LedgerAuditEvent(models.Model):
+    event_type = models.CharField(max_length=50, choices=LedgerAuditEventType.choices)
+    transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True, blank=True)
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)

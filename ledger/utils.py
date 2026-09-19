@@ -1,15 +1,19 @@
 from django.db import transaction as db_transaction
-from .models import Transaction, Entry, Account, IdempotencyKey
+from .models import Transaction, Entry, Account, IdempotencyKey, LedgerAuditEvent
 from django.db.models import Sum
 import hashlib
 import json
+import logging
+
+
+logger = logging.getLogger("ledger")
 
 
 def health_point_check_util(request):
     return "Status OK"
 
 
-def create_transaction(kind, entries, idempotency_key=None, metadata=None):
+def create_transaction(kind, entries, idempotency_key=None, metadata=None, reverses=None):
     total = sum(entry["amount"] for entry in entries)
     if total != 0:
         raise ValueError(f"entries must sum to zero, got {total}")
@@ -17,7 +21,8 @@ def create_transaction(kind, entries, idempotency_key=None, metadata=None):
         transaction = Transaction.objects.create(
             kind = kind,
             idempotency_key = idempotency_key,
-            metadata = metadata or {}
+            metadata = metadata or {},
+            reverses=reverses
         )
         for entry in entries:
             Entry.objects.create(
@@ -26,6 +31,19 @@ def create_transaction(kind, entries, idempotency_key=None, metadata=None):
                 amount = entry["amount"],
                 currency = entry.get("currency", "INR")
             )
+            
+        log_ledger_audit_event(
+            "transaction_created",
+            transaction=transaction,
+            payload={"kind": kind, "entry_count": len(entries)},
+        )
+        
+        logger.info("transaction_created", extra={
+            "transaction_id": transaction.id,
+            "kind": kind,
+            "entry_count": len(entries),
+        })
+
     return transaction
 
 
@@ -87,3 +105,27 @@ def wallet_payment(user_id, amount):
         ]
         
         return create_transaction(kind="wallet payment", entries=entries)
+    
+    
+def reverse_transaction(transaction_id):
+    original = Transaction.objects.get(id=transaction_id)
+    original_entries = original.entries.all()
+    reversed_entries = []
+    for entry in original_entries:
+        reversed_entries.append({"account_id": entry.account_id, "amount": -entry.amount})
+        
+    reversal = create_transaction(kind="refund", entries=reversed_entries, reverses=original)
+    log_ledger_audit_event("transaction_reversed", transaction=reversal, payload={"reverses": original.id})
+    logger.info("transaction_reversed", extra={
+    "transaction_id": reversal.id,
+    "reverses": original.id,
+    })
+    return reversal
+
+
+def log_ledger_audit_event(event_type, transaction=None, payload=None):
+    LedgerAuditEvent.objects.create(
+        event_type=event_type,
+        transaction=transaction,
+        payload=payload or {},
+    )
