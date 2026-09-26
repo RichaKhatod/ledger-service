@@ -5,6 +5,10 @@ import pytest
 from ledger.utils import *
 import threading
 from django.db import connection
+import hmac, hashlib, time, json
+from django.conf import settings
+import os
+
 
 @pytest.mark.django_db
 def test_create_account():
@@ -180,3 +184,99 @@ def test_no_double_spend_under_concurrency():
     # assert — exactly ONE succeeded, the rest failed
     assert results.count("success") == 1
     assert results.count("insufficient") == 4
+
+
+def sign(body, timestamp, secret=None):
+    secret = secret or os.environ["WEBHOOK_SECRET"]
+    signed = f"{timestamp}.{body}"
+    return hmac.new(secret.encode(), signed.encode(), hashlib.sha256).hexdigest()
+
+
+@pytest.mark.django_db
+def test_valid_webhook_accepted():
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet",
+                           user_id=42, currency="INR")
+    body = json.dumps({"user_id": 42, "amount": 100})
+    timestamp = str(time.time())
+    signature = sign(body, timestamp)
+
+    client = APIClient()
+    response = client.post(
+        "/ledger/webhooks/payment/",
+        data=body,
+        content_type="application/json",
+        headers={"X-Signature": signature, "X-Timestamp": timestamp, "X-Nonce": "nonce-1"},
+    )
+    assert response.status_code == 200
+    assert Transaction.objects.count() == 1
+    
+
+@pytest.mark.django_db
+def test_bad_signature_rejected():
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet",
+                           user_id=42, currency="INR")
+    body = json.dumps({"user_id": 42, "amount": 100})
+    timestamp = str(time.time())
+    signature = "deadbeef"
+
+    client = APIClient()
+    response = client.post(
+        "/ledger/webhooks/payment/",
+        data=body,
+        content_type="application/json",
+        headers={"X-Signature": signature, "X-Timestamp": timestamp, "X-Nonce": "nonce-1"},
+    )
+    assert response.status_code == 400
+    assert Transaction.objects.count() == 0
+    
+    
+@pytest.mark.django_db
+def test_stale_timestamp_rejected():
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet",
+                           user_id=42, currency="INR")
+    body = json.dumps({"user_id": 42, "amount": 100})
+    old_timestamp = str(time.time() - 600)
+    signature = sign(body, old_timestamp)
+
+    client = APIClient()
+    response = client.post(
+        "/ledger/webhooks/payment/",
+        data=body,
+        content_type="application/json",
+        headers={"X-Signature": signature, "X-Timestamp": old_timestamp, "X-Nonce": "nonce-1"},
+    )
+    assert response.status_code == 400
+    assert Transaction.objects.count() == 0
+
+    
+@pytest.mark.django_db
+def test_replay_rejected():
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet",
+                           user_id=42, currency="INR")
+    body = json.dumps({"user_id": 42, "amount": 100})
+    client = APIClient()
+
+    # first request — valid
+    timestamp1 = str(time.time())
+    signature1 = sign(body, timestamp1)
+    response1 = client.post(
+        "/ledger/webhooks/payment/",
+        data=body, content_type="application/json",
+        headers={"X-Signature": signature1, "X-Timestamp": timestamp1, "X-Nonce": "nonce-1"},
+    )
+    assert response1.status_code == 200
+
+    # second request — REPLAY: fresh timestamp + valid signature, but SAME nonce
+    timestamp2 = str(time.time())
+    signature2 = sign(body, timestamp2)
+    response2 = client.post(
+        "/ledger/webhooks/payment/",
+        data=body, content_type="application/json",
+        headers={"X-Signature": signature2, "X-Timestamp": timestamp2, "X-Nonce": "nonce-1"},  # ← same nonce
+    )
+    assert response2.status_code == 400
+    assert Transaction.objects.count() == 1   # only the first processed
