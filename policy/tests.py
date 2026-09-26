@@ -2,8 +2,12 @@ from django.test import TestCase
 from agents.utils import *
 from budgets.models import *
 from ledger.models import *
+from policy.models import *
 from rest_framework.test import APIClient
 import pytest
+from django.utils import timezone
+from datetime import timedelta
+
 
 def helper():
     agent, raw_key = create_with_key_util("test-agent")
@@ -104,3 +108,68 @@ def test_auth_returns():
     response = client.post("/policy/process_spend_request/",
         data={"amount": 10_000, "vendor": "aws"}, format="json")
     assert response.status_code in (401, 403)
+    
+    
+@pytest.mark.django_db
+def test_approve_escalated_request():
+    agent, client = helper()
+    # escalate
+    response = client.post("/policy/process_spend_request/",
+        data={"amount": 60_000, "vendor": "aws"}, format="json")
+    assert response.status_code == 202
+    # get approval id
+    from policy.models import ApprovalRequest
+    approval = ApprovalRequest.objects.last()
+    # approve it
+    admin_client = APIClient()
+    response = admin_client.post(f"/policy/process_approval_decision/{approval.id}/decide/",
+        data={"decision": "approve", "approver_name": "manager"}, format="json")
+    assert response.status_code == 200
+    # verify budget deducted
+    envelope = BudgetEnvelope.objects.get(agent=agent)
+    assert envelope.spent_today == 60_000
+    
+    
+@pytest.mark.django_db
+def test_deny_escalated_request():
+    agent, client = helper()
+    response = client.post("/policy/process_spend_request/",
+        data={"amount": 60_000, "vendor": "aws"}, format="json")
+    approval = ApprovalRequest.objects.last()
+    admin_client = APIClient()
+    response = admin_client.post(f"/policy/process_approval_decision/{approval.id}/decide/",
+        data={"decision": "deny", "approver_name": "manager"}, format="json")
+    assert response.status_code == 200
+    envelope = BudgetEnvelope.objects.get(agent=agent)
+    assert envelope.spent_today == 0
+
+
+@pytest.mark.django_db
+def test_already_decided_returns_409():
+    agent, client = helper()
+    response = client.post("/policy/process_spend_request/",
+        data={"amount": 60_000, "vendor": "aws"}, format="json")
+    approval = ApprovalRequest.objects.last()
+    admin_client = APIClient()
+    # first approve
+    admin_client.post(f"/policy/process_approval_decision/{approval.id}/decide/",
+        data={"decision": "approve", "approver_name": "manager"}, format="json")
+    # second attempt
+    response = admin_client.post(f"/policy/process_approval_decision/{approval.id}/decide/",
+        data={"decision": "approve", "approver_name": "manager"}, format="json")
+    assert response.status_code == 409
+
+
+@pytest.mark.django_db
+def test_expired_approval_returns_410():
+    agent, client = helper()
+    response = client.post("/policy/process_spend_request/",
+        data={"amount": 60_000, "vendor": "aws"}, format="json")
+    approval = ApprovalRequest.objects.last()
+    # force expiry
+    approval.expires_at = timezone.now() - timedelta(minutes=1)
+    approval.save(update_fields=["expires_at"])
+    admin_client = APIClient()
+    response = admin_client.post(f"/policy/process_approval_decision/{approval.id}/decide/",
+        data={"decision": "approve", "approver_name": "manager"}, format="json")
+    assert response.status_code == 410
