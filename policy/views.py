@@ -17,3 +17,15 @@ def process_spend_request(request):
     purpose = request.data.get("purpose", "")
     message, data, status_code = process_spend_request_util(agent_id, amount, vendor, purpose=purpose)
     return Response({"message":message, "data":data}, status=status_code)
+
+
+@api_view(['POST'])
+def process_approval_decision(request, approval_id):
+    decision = request.data.get("decision")
+    approver_name = request.data.get("approver_name", "")
+
+    if decision not in ("approve", "deny"):
+        return Response({"error": "decision must be 'approve' or 'deny'"}, status=400)
+
+    message, data, status_code = process_approval_decision_util(approval_id, decision, approver_name)
+    return Response({"message": message, "data": data}, status=status_code)

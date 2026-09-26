@@ -5,6 +5,8 @@ from ledger.utils import create_transaction
 from .engine import *
 from ledger.models import Account
 from audit.logger import *
+from django.utils import timezone
+from datetime import timedelta
 
 def process_spend_request_util(agent_id, amount, vendor, purpose="", metadata=None):
 	spend_request = SpendRequest.objects.create(
@@ -47,7 +49,6 @@ def process_spend_request_util(agent_id, amount, vendor, purpose="", metadata=No
 			log_event(event_type="spend_approved", agent=spend_request.agent, spend_request=spend_request, payload={"amount": amount, "vendor": vendor})
 			return ("Approved", {"spend_request_id": spend_request.id}, 201)
 
-
 		elif result.decision==Decision.REJECT:
 			spend_request.status = "rejected"
 			spend_request.policy_decision_reason = result.reason
@@ -59,5 +60,85 @@ def process_spend_request_util(agent_id, amount, vendor, purpose="", metadata=No
 			spend_request.status = "escalated"
 			spend_request.policy_decision_reason = result.reason
 			spend_request.save(update_fields=["status", "policy_decision_reason"])
+			ApprovalRequest.objects.create(
+				spend_request=spend_request,
+				expires_at=timezone.now() + timedelta(minutes=30),
+			)
 			log_event(event_type="spend_escalated", agent=spend_request.agent, spend_request=spend_request, payload={"amount": amount, "reason": result.reason})
 			return ("Request escalated", {"spend_request_id": spend_request.id}, 202)
+
+
+def process_approval_decision_util(approval_id, decision, approver_name):
+	with transaction.atomic():
+		approval = ApprovalRequest.objects.select_for_update().get(id=approval_id)
+		
+		if approval.decision != "pending":
+			return ("approval decision already made", {}, 409)
+		
+		if timezone.now() > approval.expires_at:
+			approval.decision = "denied"
+			approval.decided_at = timezone.now()
+			approval.save(update_fields=["decision", "decided_at"])
+			return ("Approval request denied", {"approval_id":approval_id}, 410)
+
+		spend_request = approval.spend_request
+
+		if decision == "approve":
+
+			envelope = BudgetEnvelope.objects.select_for_update().get(agent_id=spend_request.agent_id)
+   
+			if envelope.spent_today + spend_request.amount > envelope.daily_limit:
+				approval.decision = "denied"
+				approval.approver_name = approver_name
+				approval.decided_at = timezone.now()
+				approval.save(update_fields=["decision", "approver_name", "decided_at"])
+				spend_request.status = "rejected"
+				spend_request.save(update_fields=["status"])
+				return ("budget exhausted", {}, 403)
+			
+			#deduct budget
+			envelope.spent_today += spend_request.amount
+			envelope.spent_this_month += spend_request.amount
+			envelope.save(update_fields=["spent_today", "spent_this_month"])
+			
+			try:
+				expense_account = Account.objects.get(name="Agent Expense")
+				vendor_payable = Account.objects.get(name="Vendor Payable")
+				txn = create_transaction(
+					kind="agent_spend",
+					entries=[
+						{"account_id": expense_account.id, "amount": spend_request.amount},
+						{"account_id": vendor_payable.id, "amount": -spend_request.amount},
+					],
+					metadata={
+						"agent_id": spend_request.agent_id,
+						"vendor": spend_request.vendor,
+						"spend_request_id": spend_request.id,
+					},
+				)
+				spend_request.transaction = txn
+			except Account.DoesNotExist:
+				pass  # ledger accounts not seeded yet — still approve
+			
+			approval.decision = "approved"
+			approval.approver_name = approver_name
+			approval.decided_at = timezone.now()
+			approval.save(update_fields=["decision", "approver_name", "decided_at"])
+
+			spend_request.status = "approved"
+			spend_request.save(update_fields=["status", "transaction"])
+			log_event("approval_granted", agent=spend_request.agent, spend_request=spend_request,
+                      payload={"approver": approver_name})
+			return ("Approved", {"spend_request_id": spend_request.id}, 200)
+
+		elif decision == "deny":
+			approval.decision = "denied"
+			approval.approver_name = approver_name
+			approval.decided_at = timezone.now()
+			approval.save(update_fields=["decision", "approver_name", "decided_at"])
+
+			spend_request.status = "rejected"
+			spend_request.save(update_fields=["status"])
+			log_event("approval_denied", agent=spend_request.agent, spend_request=spend_request,
+					payload={"approver": approver_name})
+			return ("Denied", {}, 200)
