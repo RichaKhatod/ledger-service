@@ -3,5 +3,6 @@ from budgets import views
 
 urlpatterns = [
     re_path(r'^get_budget/(?P<agent_id>\d+)/$', views.get_budget),
-    re_path(r'^update_budget/(?P<agent_id>\d+)/$', views.update_budget)
+    re_path(r'^update_budget/(?P<agent_id>\d+)/$', views.update_budget),
+    re_path(r'^get_spend_summary/(?P<agent_id>\d+)/$', views.get_spend_summary),
 ]

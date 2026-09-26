@@ -1,5 +1,9 @@
 from budgets.models import BudgetEnvelope
 from agents.models import Agent
+from django.db.models import Sum, Count
+from django.db.models.functions import TruncDate
+from policy.models import SpendRequest
+
 
 def get_budget_util(agent_id):
     try:
@@ -47,3 +51,19 @@ def update_budget_util(agent_id, data):
     envelope.save(update_fields=update_fields)
 
     return ("budgeting envelope updated", {"updated_fields": update_fields}, 200)
+
+
+def get_spend_summary_util(agent_id):
+    approved = SpendRequest.objects.filter(agent_id=agent_id, status="approved")
+    
+    by_vendor = list(
+		approved.values("vendor").annotate(total=Sum("amount"), count=Count("id")).order_by("-total")
+	)
+    
+    by_day = list(approved.annotate(day=TruncDate("created_at"))
+                .values("day")
+                .annotate(total=Sum("amount"), count=Count("id"))
+                .order_by("-day")
+                )
+    
+    return ("summary found", {"by_vendor": by_vendor, "by_day": by_day}, 200)

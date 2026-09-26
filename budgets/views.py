@@ -13,3 +13,9 @@ def get_budget(request, agent_id):
 def update_budget(request, agent_id):
     message, data, status_code = update_budget_util(agent_id, request.data)
     return Response({"message": message, "data": data}, status=status_code)
+
+
+@api_view(['GET'])
+def get_spend_summary(request, agent_id):
+    message, data, status_code = get_spend_summary_util(agent_id)
+    return Response({"message": message, "data": data}, status=status_code)
