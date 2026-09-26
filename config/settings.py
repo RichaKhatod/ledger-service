@@ -160,3 +160,13 @@ LOGGING = {
         },
     },
 }
+
+CELERY_BEAT_SCHEDULE = {
+    'expire-pending-approvals': {
+        'task': 'policy.tasks.expire_pending_approvals',
+        'schedule': 60.0,
+    },
+}
+
+
+CELERY_BROKER_URL = "redis://redis:6379/0"
