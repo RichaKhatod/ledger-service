@@ -49,3 +49,20 @@ class AccountBalanceView(APIView):
     def get(self, request, account_id):
         balance = get_account_balance(account_id)
         return Response({"account_id": account_id, "balance":balance}, status=status.HTTP_200_OK)
+    
+    
+class PaymentWebhookView(APIView):
+    def post(self, request):
+        body = request.body.decode()
+        signature = request.headers.get("X-Signature")
+        timestamp = request.headers.get("X-Timestamp")
+        nonce = request.headers.get("X-Nonce")
+        
+        try:
+            verify_webhook(body, signature, timestamp, nonce)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
+        
+        data = json.loads(body)
+        transaction = wallet_topup(user_id=data["user_id"], amount=data["amount"])
+        return Response({"transaction_id":transaction.id}, status=200)
