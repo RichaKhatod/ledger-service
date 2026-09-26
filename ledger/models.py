@@ -66,3 +66,8 @@ class LedgerAuditEvent(models.Model):
     transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True, blank=True)
     payload = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    
+class WebhookNonce(models.Model):
+    nonce = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
