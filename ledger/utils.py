@@ -1,9 +1,11 @@
 from django.db import transaction as db_transaction
-from .models import Transaction, Entry, Account, IdempotencyKey, LedgerAuditEvent
+from .models import Transaction, Entry, Account, IdempotencyKey, LedgerAuditEvent, WebhookNonce
 from django.db.models import Sum
 import hashlib
 import json
 import logging
+import hmac, hashlib, os, time
+from django.db import IntegrityError
 
 
 logger = logging.getLogger("ledger")
@@ -129,3 +131,25 @@ def log_ledger_audit_event(event_type, transaction=None, payload=None):
         transaction=transaction,
         payload=payload or {},
     )
+    
+    
+def verify_webhook(body, signature, timestamp, nonce):
+    secret = os.environ["WEBHOOK_SECRET"]
+    signed_payload = f"{timestamp}.{body}"
+    expected = hmac.new(
+        secret.encode(),
+    msg=signed_payload.encode(),
+    digestmod=hashlib.sha256,
+    ).hexdigest()
+    
+    if not hmac.compare_digest(expected, signature):
+        raise ValueError("invalid signature")
+    
+    if abs(time.time() - float(timestamp)) > 300:
+        raise ValueError("timestamp outside allowed window")
+    
+    try:
+        with db_transaction.atomic():
+            WebhookNonce.objects.create(nonce=nonce)
+    except IntegrityError:
+        raise ValueError("duplicate nonce; replay detected")
