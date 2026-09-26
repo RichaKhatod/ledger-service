@@ -7,6 +7,20 @@ from budgets.models import BudgetEnvelope
 from agents.authentication import AgentAPIKeyAuth
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIRequestFactory
+from ledger.models import Account
+
+
+def helper():
+    agent, raw_key = create_with_key_util("test-agent")
+    BudgetEnvelope.objects.create(
+        agent=agent, daily_limit=500_000, monthly_limit=2_000_000,
+        per_txn_limit=100_000, auto_approve_threshold=50_000,
+    )
+    Account.objects.create(name="Agent Expense", type="expense", currency="INR")
+    Account.objects.create(name="Vendor Payable", type="liability", currency="INR")
+    client = APIClient()
+    client.credentials(HTTP_X_AGENT_KEY=raw_key)
+    return agent, client
 
 
 @pytest.mark.django_db
@@ -74,3 +88,19 @@ def test_unfreeze_agent():
 	assert response.status_code == 200
 	agent.refresh_from_db()
 	assert agent.is_active is True
+ 
+ 
+@pytest.mark.django_db
+def test_freeze_denies_pending_approvals():
+    agent, client = helper()
+    # escalate
+    client.post("/policy/process_spend_request/",
+        data={"amount": 60_000, "vendor": "aws"}, format="json")
+    from policy.models import ApprovalRequest
+    approval = ApprovalRequest.objects.last()
+    assert approval.decision == "pending"
+    # freeze
+    admin_client = APIClient()
+    admin_client.post(f"/agents/freeze_agent/{agent.id}/")
+    approval.refresh_from_db()
+    assert approval.decision == "denied"
