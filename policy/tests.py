@@ -7,6 +7,8 @@ from rest_framework.test import APIClient
 import pytest
 from django.utils import timezone
 from datetime import timedelta
+from audit.models import AnomalyAlert
+
 
 
 def helper():
@@ -173,3 +175,32 @@ def test_expired_approval_returns_410():
     response = admin_client.post(f"/policy/process_approval_decision/{approval.id}/decide/",
         data={"decision": "approve", "approver_name": "manager"}, format="json")
     assert response.status_code == 410
+    
+    
+@pytest.mark.django_db
+def test_high_single_txn_triggers_anomaly():
+    agent, client = helper()
+    # 50% of daily_limit (500_000) = 250_000, but must be under per_txn_limit and threshold
+    # update envelope to allow it through normal checks
+    envelope = BudgetEnvelope.objects.get(agent=agent)
+    envelope.per_txn_limit = 400_000
+    envelope.auto_approve_threshold = 400_000
+    envelope.save(update_fields=["per_txn_limit", "auto_approve_threshold"])
+    response = client.post("/policy/process_spend_request/",
+        data={"amount": 300_000, "vendor": "aws"}, format="json")
+    assert response.status_code == 202
+    assert AnomalyAlert.objects.filter(alert_type="high_single_transaction").count() == 1
+
+
+@pytest.mark.django_db
+def test_new_vendor_high_amount_triggers_anomaly():
+    agent, client = helper()
+    envelope = BudgetEnvelope.objects.get(agent=agent)
+    envelope.per_txn_limit = 400_000
+    envelope.auto_approve_threshold = 400_000
+    envelope.vendor_allowlist = []
+    envelope.save(update_fields=["per_txn_limit", "auto_approve_threshold", "vendor_allowlist"])
+    response = client.post("/policy/process_spend_request/",
+        data={"amount": 110_000, "vendor": "new-vendor"}, format="json")
+    assert response.status_code == 202
+    assert AnomalyAlert.objects.filter(alert_type="new_vendor_high_amount").count() == 1
