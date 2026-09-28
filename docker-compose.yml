@@ -35,5 +35,29 @@ services:
     ports:
       - "6380:6379"
 
+  celery_worker:
+    build: .
+    env_file: .env
+    command: celery -A config worker --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  celery_beat:
+    build: .
+    env_file: .env
+    command: celery -A config beat --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
 volumes:
   postgres_data:

@@ -166,6 +166,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'policy.tasks.expire_pending_approvals',
         'schedule': 60.0,
     },
+    'scan-for-anomalies': {
+        'task': 'policy.tasks.scan_for_anomalies',
+        'schedule': 900.0,  # 15 minutes
+    },
 }
 
 
