@@ -280,3 +280,32 @@ def test_replay_rejected():
     )
     assert response2.status_code == 400
     assert Transaction.objects.count() == 1   # only the first processed
+    
+    
+@pytest.mark.django_db
+def test_reconciliation_finds_all_mismatches():
+    from ledger.models import ProviderRecord, ReconciliationMismatch
+    from ledger.tasks import reconcile
+
+    # accounts for topups
+    Account.objects.create(name="PSP Receivable", type="asset", currency="INR")
+    Account.objects.create(name=None, type="liability", purpose="wallet", user_id=42, currency="INR")
+
+    # --- Case A: provider record with NO transaction (missing_in_ledger) ---
+    ProviderRecord.objects.create(provider_ref="ref-A", amount=100, status="settled")
+
+    # --- Case B: matched transaction but amount DIFFERS (amount_mismatch) ---
+    txn_b = wallet_topup(user_id=42, amount=100)   # ledger says 100
+    ProviderRecord.objects.create(provider_ref="ref-B", amount=200, status="settled", transaction=txn_b)  # provider says 200
+
+    # --- Case C: transaction with NO provider record (missing_in_provider) ---
+    wallet_topup(user_id=42, amount=50)   # a topup the provider doesn't know about
+
+    # run reconciliation
+    count = reconcile()
+
+    # assert all three caught
+    assert count == 3
+    assert ReconciliationMismatch.objects.filter(mismatch_type="missing_in_ledger").count() == 1
+    assert ReconciliationMismatch.objects.filter(mismatch_type="amount_mismatch").count() == 1
+    assert ReconciliationMismatch.objects.filter(mismatch_type="missing_in_provider").count() == 1
