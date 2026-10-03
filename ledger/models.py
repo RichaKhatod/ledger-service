@@ -71,3 +71,11 @@ class LedgerAuditEvent(models.Model):
 class WebhookNonce(models.Model):
     nonce = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+
+class ProviderRecord(models.Model):
+    provider_ref = models.CharField(max_length=200, unique=True)
+    amount = models.BigIntegerField()
+    status = models.CharField(max_length=50)
+    transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True, blank=True, related_name="provider_records",)
+    created_at = models.DateTimeField(auto_now_add=True)
