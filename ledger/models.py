@@ -61,6 +61,7 @@ class LedgerAuditEventType(models.TextChoices):
     TRANSACTION_CREATED = "transaction_created", "Transaction created"
     TRANSACTION_REVERSED = "transaction_reversed", "Transaction reversed"
 
+
 class LedgerAuditEvent(models.Model):
     event_type = models.CharField(max_length=50, choices=LedgerAuditEventType.choices)
     transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True, blank=True)
@@ -71,3 +72,26 @@ class LedgerAuditEvent(models.Model):
 class WebhookNonce(models.Model):
     nonce = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+
+class ProviderRecord(models.Model):
+    provider_ref = models.CharField(max_length=200, unique=True)
+    amount = models.BigIntegerField()
+    status = models.CharField(max_length=50)
+    transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True, blank=True, related_name="provider_records",)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    
+class ReconciliationMismatchEventType(models.TextChoices):
+    MISSING_IN_PROVIDER = "missing_in_provider", "Missing in provider"
+    MISSING_IN_LEDGER = "missing_in_ledger", "Missing in ledger"
+    AMOUNT_MISMATCH = "amount_mismatch", "Amount mismatch"
+    
+    
+class ReconciliationMismatch(models.Model):
+    mismatch_type = models.CharField(max_length=50, choices=ReconciliationMismatchEventType.choices)
+    provider_ref = models.CharField(max_length=200, null=True)
+    transaction = models.ForeignKey(Transaction, on_delete=models.PROTECT, null=True, blank=True, related_name="reconciliation_mismatch",)
+    ledger_amount = models.BigIntegerField(null=True)
+    provider_amount = models.BigIntegerField(null=True)
+    detected_at = models.DateTimeField(auto_now_add=True)
