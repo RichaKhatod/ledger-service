@@ -170,6 +170,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'policy.tasks.scan_for_anomalies',
         'schedule': 900.0,  # 15 minutes
     },
+    'reconcile-ledger': {
+        'task': 'ledger.tasks.reconcile',
+        'schedule': 3600.0,   # hourly, or 86400.0 for daily
+    },
 }
 
 
