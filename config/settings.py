@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "budgets",
     "policy",
     "audit",
+    "drf_spectacular",
 ]
 
 MIDDLEWARE = [
@@ -178,3 +179,23 @@ CELERY_BEAT_SCHEDULE = {
 
 
 CELERY_BROKER_URL = "redis://redis:6379/0"
+
+REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "config.exception_handler.custom_exception_handler",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "1/minute",
+        "user": "1/minute",
+    },
+}
+
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Ledger Service API",
+    "DESCRIPTION": "Double-entry payments ledger with agent spending guardrails",
+    "VERSION": "1.0.0",
+}
