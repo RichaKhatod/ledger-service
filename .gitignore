@@ -1,5 +1,30 @@
+# Virtual environment
 venv/
+.venv/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Environment / secrets
 .env
+
+# Django
 db.sqlite3
+*.log
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
