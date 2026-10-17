@@ -1,0 +1,48 @@
+name: CI
+
+on:
+    push:
+        branches: [main, pre-production]
+    pull_request:
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_DB: ledger
+                    POSTGRES_USER: ledger_user
+                    POSTGRES_PASSWORD: testpass
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        steps:
+            - name: Check out code
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                python-version: "3.12"
+
+            - name: Install dependencies
+              run: pip install -r requirements.txt
+            
+            - name: Run migrations
+              run: python manage.py migrate
+              env:
+                SECRET_KEY: test-secret-key
+                DB_NAME: ledger
+                DB_USER: ledger_user
+                DB_PASSWORD: testpass
+                DB_HOST: localhost
+                DB_PORT: 5432
+                WEBHOOK_SECRET: test-webhook-secret
