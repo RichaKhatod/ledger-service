@@ -1,5 +1,7 @@
 # Double-Entry Payments Ledger (with Autonomous-Agent Spending Guardrails)
 
+![CI](https://github.com/RichaKhatod/ledger-service/actions/workflows/ci.yml/badge.svg?branch=pre-production)
+
 A production-shaped double-entry payments ledger built in Django / DRF / PostgreSQL — with a second layer, an autonomous-agent spending-control system, built on top of it.
 
 The project is two layers:
